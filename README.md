@@ -6,4 +6,4 @@ Co ja chce dodać:
   - Zrobić tak żeby dodawać pliki z poziomu konsoli a nie zmieniać to w kodzie cały czas
   - To na co wpadne
 
-Jeżeli macie jakieś prośby/uwagi to wpiszcie to w plik Księga Zażaleń
+Jeżeli macie jakieś prośby/uwagi to wpiszcie to w Issues
