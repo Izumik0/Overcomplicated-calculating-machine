@@ -1,11 +1,24 @@
+import argparse
 import os
+import sys
 import itertools
 import numpy as np
 import pandas as pd
 import mdtraj
 
+# /////////////////////////////////Argumenty dla konsoli////////////////////////////////////////////////////
+
+parser = argparse.ArgumentParser(description='Obliczanie więzów między atomami w strukturach DNA według informacji z NOE')
+
+#utworzenie flag dla programu
+parser.add_argument('-s', '--struct', type=str, required=True, help='Ścieżka do pliku struktury (np. structure.pdb)')
+parser.add_argument('-n', '--noe',    type=str, required=True, help='Ścieżka do pliku z danymi NOE (.txt)')
+parser.add_argument('-o', '--out',    type=str, default='wyniki_noe', help='Nazwa folderu na wyniki (domyślnie: wyniki_noe)')
+
+args = parser.parse_args()
+
 #załadowanie pliku .pdb
-traj=mdtraj.load('structure.pdb')
+traj=mdtraj.load(args.struct)
 
 #Plik NOE lokalizacje
 #    (0) - Nr. nukleotydu na którym jest pierwszy atom z pary
@@ -23,7 +36,7 @@ kolumny_pdb = [
     (22, 26), #nr. nukleotydu
 ]
 nazwy_kolumn_pdb=['Rekord', 'Indeks', 'Atom', 'Nr. Nukleotydu']
-dpdb = pd.read_fwf('structure.pdb', colspecs=kolumny_pdb, names=nazwy_kolumn_pdb)
+dpdb = pd.read_fwf(args.struct, colspecs=kolumny_pdb, names=nazwy_kolumn_pdb)
 dpdb = dpdb[dpdb['Rekord'].isin(['ATOM'])]
 
 #czyszczenie danych - wrzucamy na dane na str zeby ładnie porównywać
@@ -36,12 +49,11 @@ mapa_indeksow=dpdb.groupby(['Nr. Nukleotydu', 'Atom'])['Indeks'].apply(list).to_
 #print(mapa_indeksów)
 
 #tworzenie folderu do którego wszystkie pliki z macierzami będą wrzucone
-folder_wynikowy="Wyniki" #narazie tak to zostawie potem się poprawi
-os.makedirs(folder_wynikowy, exist_ok=True)
+os.makedirs(args.out, exist_ok=True)
 
 pary=[]
 
-with (open('NOE_clean_uni_names.txt', 'r', encoding='utf-8') as NOE_file):
+with (open(args.noe, 'r', encoding='utf-8') as NOE_file):
     for line in NOE_file:
         nr_N_1 = line.split()[0]
         atom_1 = line.split()[1]
@@ -62,13 +74,12 @@ with (open('NOE_clean_uni_names.txt', 'r', encoding='utf-8') as NOE_file):
         odleglosci=mdtraj.compute_distances(traj, pary) # tu jest odległość w nm
         odleglosci_a= odleglosci*10 #odległości w arstrongach czy jak się to nazywa
 
-        print("Odległości między atomami:\n", "Nr. Nukleotydu:", nr_N_1, "Atom:", atom_1, "Nr. nuk:", nr_N_2, "atom", atom_2, "\n", odleglosci_a)
+        #print("Odległości między atomami:\n", "Nr. Nukleotydu:", nr_N_1, "Atom:", atom_1, "Nr. nuk:", nr_N_2, "atom", atom_2, "\n", odleglosci_a)
 
         #przygotowanie wyników do zapisu
         wynik_do_zapisu=odleglosci_a.reshape(len(indeks_1), len(indeks_2))
         roznica_od_exp=(wynik_do_zapisu-war_porow_f)
-        print(" Rożnice Odległości między atomami:\n", "Nr. Nukleotydu:", nr_N_1, "Atom:", atom_1, "Nr. nuk:", nr_N_2, "atom",
-              atom_2, "\n", roznica_od_exp)
+        #print(" Rożnice Odległości między atomami:\n", "Nr. Nukleotydu:", nr_N_1, "Atom:", atom_1, "Nr. nuk:", nr_N_2, "atom", atom_2, "\n", roznica_od_exp)
 
         #zapis macierzy do pliku i robienie kolorków
         etyk_wierszy=[f"{nr_N_1}_{atom_1}_{i}" for i in indeks_1]
@@ -78,7 +89,7 @@ with (open('NOE_clean_uni_names.txt', 'r', encoding='utf-8') as NOE_file):
         df_zapis_roz= pd.DataFrame(roznica_od_exp, index=etyk_wierszy, columns=etyk_kolumn)
 
         nazwa_pliku=f"{nr_N_1}_{atom_1}_vs_{nr_N_2}_{atom_2}.xlsx"
-        sciezka=os.path.join(folder_wynikowy, nazwa_pliku)
+        sciezka=os.path.join(args.out, nazwa_pliku)
 
         with pd.ExcelWriter(sciezka, engine='xlsxwriter') as writer:
             #zapis do Excela
@@ -106,7 +117,7 @@ with (open('NOE_clean_uni_names.txt', 'r', encoding='utf-8') as NOE_file):
             })
 
 
-        print(f"Zapisano macierz: {sciezka}")
+        print(f"Zadanie ukończono, macierze zapisano w: {args.out}")
 
 #liczy zajebiście bo porównałem z VMD i wmiare pasuje to wszystko - ale potem więcej posprawdzam tych par atomów
 #Zapis do pliku też jest git ja poprostu nie na tą pare spojrzałem ;p
