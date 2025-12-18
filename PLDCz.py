@@ -33,15 +33,15 @@ kolumny_pdb = [
     (0, 6), #Kolumna z typem co to jest czyli w naszym przypadku przeszukujemy ATOMS
     (6, 11), #indeks atomu
     (12, 16), #nazwa atomu
-    (22, 26), #nr. nukleotydu
+    (22, 26), #nr. cząsteczki
 ]
 nazwy_kolumn_pdb=['Rekord', 'Indeks', 'Atom', 'Nr. Nukleotydu']
 dpdb = pd.read_fwf(args.struct, colspecs=kolumny_pdb, names=nazwy_kolumn_pdb)
 dpdb = dpdb[dpdb['Rekord'].isin(['ATOM'])]
 
 #czyszczenie danych - wrzucamy na dane na str zeby ładnie porównywać
-dpdb['Atom'] = dpdb['Atom'].str.strip()
-dpdb['Nr. Nukleotydu'] = dpdb['Nr. Nukleotydu'].str.strip()
+dpdb['Atom'] = dpdb['Atom'].astype(str).str.strip()
+dpdb['Nr. Nukleotydu'] = dpdb['Nr. Nukleotydu'].astype(str).str.strip()
 
 
 #tworzenie mapy z pogrupowanymi indeksami atomów
