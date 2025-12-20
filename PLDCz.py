@@ -46,11 +46,12 @@ dpdb['Nr. Nukleotydu'] = dpdb['Nr. Nukleotydu'].astype(str).str.strip()
 
 #tworzenie mapy z pogrupowanymi indeksami atomów
 mapa_indeksow=dpdb.groupby(['Nr. Nukleotydu', 'Atom'])['Indeks'].apply(list).to_dict()
-#print(mapa_indeksów)
+
 
 #tworzenie folderu do którego wszystkie pliki z macierzami będą wrzucone
 os.makedirs(args.out, exist_ok=True)
 
+brak_par=[]
 pary=[]
 
 with (open(args.noe, 'r', encoding='utf-8') as NOE_file):
@@ -64,6 +65,14 @@ with (open(args.noe, 'r', encoding='utf-8') as NOE_file):
         #the black box - czyli sobie znajduje, kombinuje i liczy odległości
         indeks_1=np.array(mapa_indeksow.get((nr_N_1, atom_1), [])) #znajdujemy indeksy dla pierwszego atomu
         indeks_2=np.array(mapa_indeksow.get((nr_N_2, atom_2), [])) #znajdujey indeksy dla drugiego atomu
+
+        #system pomijania par które się nie pojawiły i ich dokumentowania w terminalu(poki co)
+        if len(indeks_1)==0 or len(indeks_2)==0:
+            print(f"Nie można znaleźć pary: {nr_N_1}_{atom_1} i {nr_N_2}_{atom_2}, przechodze dalej do kolejnej pary z pliku")
+            brak_par.append(f"Nie znaleziono par: {nr_N_1}_{atom_1} i {nr_N_2}_{atom_2}")
+            continue
+
+        #powrót do black boxa
         pary_str= itertools.product(indeks_1, indeks_2)
         pary_maciez=np.array(list(pary_str))
         pary=pary_maciez.astype(int)-1 #i znów na int (+ jest tu łatanie duck tape'em)
@@ -74,12 +83,9 @@ with (open(args.noe, 'r', encoding='utf-8') as NOE_file):
         odleglosci=mdtraj.compute_distances(traj, pary) # tu jest odległość w nm
         odleglosci_a= odleglosci*10 #odległości w arstrongach czy jak się to nazywa
 
-        #print("Odległości między atomami:\n", "Nr. Nukleotydu:", nr_N_1, "Atom:", atom_1, "Nr. nuk:", nr_N_2, "atom", atom_2, "\n", odleglosci_a)
-
         #przygotowanie wyników do zapisu
         wynik_do_zapisu=odleglosci_a.reshape(len(indeks_1), len(indeks_2))
         roznica_od_exp=(wynik_do_zapisu-war_porow_f)
-        #print(" Rożnice Odległości między atomami:\n", "Nr. Nukleotydu:", nr_N_1, "Atom:", atom_1, "Nr. nuk:", nr_N_2, "atom", atom_2, "\n", roznica_od_exp)
 
         #zapis macierzy do pliku i robienie kolorków
         etyk_wierszy=[f"{nr_N_1}_{atom_1}_{i}" for i in indeks_1]
@@ -121,3 +127,12 @@ with (open(args.noe, 'r', encoding='utf-8') as NOE_file):
 
 #liczy zajebiście bo porównałem z VMD i wmiare pasuje to wszystko - ale potem więcej posprawdzam tych par atomów
 #Zapis do pliku też jest git ja poprostu nie na tą pare spojrzałem ;p
+
+#Zapis raportu o zaginionych atomach
+czst_struk=os.path.basename(args.struct)
+n_raportu=f"Raport z zaginionych par w pliku: {czst_struk}.txt"
+s_raport=os.path.join(args.out, n_raportu)
+with (open(s_raport, 'w', encoding='utf-8')) as s_file:
+    for elem in brak_par:
+        s_file.write(f"{elem}\n")
+
