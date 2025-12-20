@@ -69,7 +69,7 @@ def convert_line(line):
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:
-        print("Usage: python old_to_new.py input.pdb output.pdb")
+        print("Usage: python new_to_old.py input.pdb output.pdb")
         sys.exit(1)
 
     input_file = sys.argv[1]
