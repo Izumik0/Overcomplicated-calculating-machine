@@ -1,6 +1,6 @@
 Jak używać:
 
-komenda: python PLDCz.py -s [plik ze strukturą] -n [plik z więzami] -o [jak ma nazywać się folder]
+komenda: python PLDCz.py -s [plik ze strukturą] (musi być w fomacie .pdb) -n [plik z więzami] (musie być w formacie .txt) -o [jak ma nazywać się folder]
 
 Jak odczytywać wyniki w tabelach .csv któ®e podaje program:
 Oznaczenie atomu wygląda następująco:
