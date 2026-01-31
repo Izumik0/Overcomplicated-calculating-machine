@@ -28,10 +28,20 @@ def convert_line(line):
     elif atom_name == "H2''":
         new_name = "2H2'"
 
+        # 1. Sugar Hydrogens
+    if atom_name == "H5'1":
+        new_name = "1H5'"
+    elif atom_name == "H5'2":
+        new_name = "2H5'"
+    elif atom_name == "H2'1":
+        new_name = "1H2'"
+    elif atom_name == "H2'2":
+        new_name = "2H2'"
+
     # 2. Thymine (DT) Specifics
     elif res_name in ["DT", "THY"]:
-        if atom_name == "C7":
-            new_name = "C5M"
+        if atom_name == "C5M":
+            new_name = "C7"
         elif atom_name == "H71":
             new_name = "H51"
         elif atom_name == "H72":

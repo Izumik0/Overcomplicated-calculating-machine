@@ -33,7 +33,7 @@ kolumny_pdb = [
     (0, 6), #Kolumna z typem co to jest czyli w naszym przypadku przeszukujemy ATOMS
     (6, 11), #indeks atomu
     (12, 16), #nazwa atomu
-    (22, 26), #nr. cząsteczki
+    (22, 30), #nr. cząsteczki
 ]
 nazwy_kolumn_pdb=['Rekord', 'Indeks', 'Atom', 'Nr. Nukleotydu']
 dpdb = pd.read_fwf(args.struct, colspecs=kolumny_pdb, names=nazwy_kolumn_pdb)
@@ -87,43 +87,46 @@ with (open(args.noe, 'r', encoding='utf-8') as NOE_file):
         wynik_do_zapisu=odleglosci_a.reshape(len(indeks_1), len(indeks_2))
         roznica_od_exp=(wynik_do_zapisu-war_porow_f)
 
-        #zapis macierzy do pliku i robienie kolorków
-        etyk_wierszy=[f"{nr_N_1}_{atom_1}_{i}" for i in indeks_1]
-        etyk_kolumn=[f"{nr_N_2}_{atom_2}_{i}" for i in indeks_2]
 
-        df_zapis_sim= pd.DataFrame(wynik_do_zapisu, index=etyk_wierszy, columns=etyk_kolumn)
-        df_zapis_roz= pd.DataFrame(roznica_od_exp, index=etyk_wierszy, columns=etyk_kolumn)
+        if np.any(roznica_od_exp < 0):
+            #zapis macierzy do pliku i robienie kolorków
+            etyk_wierszy=[f"{nr_N_1}_{atom_1}_{i}" for i in indeks_1]
+            etyk_kolumn=[f"{nr_N_2}_{atom_2}_{i}" for i in indeks_2]
 
-        nazwa_pliku=f"{nr_N_1}_{atom_1}_vs_{nr_N_2}_{atom_2}.xlsx"
-        sciezka=os.path.join(args.out, nazwa_pliku)
+            df_zapis_sim= pd.DataFrame(wynik_do_zapisu, index=etyk_wierszy, columns=etyk_kolumn)
+            df_zapis_roz= pd.DataFrame(roznica_od_exp, index=etyk_wierszy, columns=etyk_kolumn)
 
-        with pd.ExcelWriter(sciezka, engine='xlsxwriter') as writer:
-            #zapis do Excela
-            df_zapis_sim.to_excel(writer, sheet_name='Symulacja (nm)')
-            df_zapis_roz.to_excel(writer, sheet_name='Exp_diff')
+            nazwa_pliku=f"{nr_N_1}_{atom_1}_vs_{nr_N_2}_{atom_2}.xlsx"
+            sciezka=os.path.join(args.out, nazwa_pliku)
 
-            #Załadowanie skoroszytu
-            workbook = writer.book
-            worksheet_roz = writer.sheets['Exp_diff']
+            with pd.ExcelWriter(sciezka, engine='xlsxwriter') as writer:
+                #zapis do Excela
+                df_zapis_sim.to_excel(writer, sheet_name='Symulacja')
+                df_zapis_roz.to_excel(writer, sheet_name='Exp_diff')
 
-            #jak wygląda formatowanie
-            format_g = workbook.add_format({'bg_color': '#C6EFCE', 'font_color': '#006100'})
+                #Załadowanie skoroszytu
+                workbook = writer.book
+                worksheet_roz = writer.sheets['Exp_diff']
 
-            #ustawienie tego jakie rzeczy podlegają formatowaniu
-            max_row = len(df_zapis_roz)
-            max_col = len(df_zapis_roz.columns)
+                #jak wygląda formatowanie
+                format_g = workbook.add_format({'bg_color': '#C6EFCE', 'font_color': '#006100'})
 
-            #formatowanie
-            worksheet_roz.conditional_format(1, 1, max_row, max_col, {
-                'type': 'cell',
-                'criteria': 'between',
-                'minimum': -1,
-                'maximum': 1,
-                'format': format_g
-            })
+                #ustawienie tego jakie rzeczy podlegają formatowaniu
+                max_row = len(df_zapis_roz)
+                max_col = len(df_zapis_roz.columns)
+
+                #formatowanie
+                worksheet_roz.conditional_format(1, 1, max_row, max_col, {
+                    'type': 'cell',
+                    'criteria': 'between',
+                    'minimum': -1,
+                    'maximum': 0,
+                    'format': format_g
+                })
 
 
-        print(f"Zadanie ukończono, macierze zapisano w: {args.out}")
+
+        #print(f"Zadanie ukończono, macierze zapisano w: {args.out}")
 
 #liczy zajebiście bo porównałem z VMD i wmiare pasuje to wszystko - ale potem więcej posprawdzam tych par atomów
 #Zapis do pliku też jest git ja poprostu nie na tą pare spojrzałem ;p
