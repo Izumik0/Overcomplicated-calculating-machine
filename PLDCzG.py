@@ -20,7 +20,7 @@ args = parser.parse_args()
 #załadowanie pliku .pdb
 traj=mdtraj.load(args.struct)
 
-#Plik NOE lokalizacje
+# Plik NOE lokalizacje
 #    (0) - Nr. nukleotydu na którym jest pierwszy atom z pary
 #    (1) - Pierwszy atom z pary
 #    (2) - Nr. nukelotydu na którym jest drugi atom z pary
@@ -28,12 +28,13 @@ traj=mdtraj.load(args.struct)
 #    (4) - Wartość odległości eksperymentalna
 #    (5) - Wartość odległości teoretyczna I think
 
-#Wczytanie pliku ze strukturą z pliku .pdb - robocze póki co
+# Wczytanie pliku ze strukturą z pliku .pdb - robocze póki co
 kolumny_pdb = [
-    (0, 6), #Kolumna z typem co to jest czyli w naszym przypadku przeszukujemy ATOMS
-    (6, 11), #indeks atomu
-    (12, 16), #nazwa atomu
-    (22, 30), #nr. cząsteczki
+    (0, 6),  # Kolumna z typem co to jest czyli w naszym przypadku przeszukujemy ATOMS
+    (6, 11),  # indeks atomu
+    (12, 16),  # nazwa atomu
+    (17, 20),  # jaki to nukleotyd (adeina, guanina czy inny)
+    (22, 30),  # nr. cząsteczki
 ]
 
 
@@ -45,14 +46,18 @@ mapa_poprawek={
     "C5M":"C7", "H71":"H51",
     "H72":"H52", "H73":"H53",
 }
-nazwy_kolumn_pdb=['Rekord', 'Indeks', 'Atom', 'Nr. Nukleotydu']
+nazwy_kolumn_pdb=['Rekord', 'Indeks', 'Atom', 'Nukleotyd' ,'Nr. Nukleotydu']
 dpdb = pd.read_fwf(args.struct, colspecs=kolumny_pdb, names=nazwy_kolumn_pdb)
 dpdb = dpdb[dpdb['Rekord'].isin(['ATOM'])]
 
 #czyszczenie danych - wrzucamy na dane na str zeby ładnie porównywać
 dpdb['Atom'] = dpdb['Atom'].astype(str).str.strip()
 dpdb['Nr. Nukleotydu'] = dpdb['Nr. Nukleotydu'].astype(str).str.strip()
+dpdb['Nukleotyd'] = dpdb['Nukleotyd'].astype(str).str.strip()
 dpdb['Atom'] = dpdb['Atom'].replace(mapa_poprawek)
+
+#usuwanie wszystkiego co nie jest Guaniną
+dpdb = dpdb[dpdb['Nukleotyd'].isin(['DG'])]
 
 #tworzenie mapy z pogrupowanymi indeksami atomów
 mapa_indeksow=dpdb.groupby(['Nr. Nukleotydu', 'Atom'])['Indeks'].apply(list).to_dict()
