@@ -159,8 +159,10 @@ with (open(args.noe, 'r', encoding='utf-8') as NOE_file):
                     # Konkretne atomy w tym wariancie
                     'Res1': real_res_1,
                     'Atom1': real_name_1,
+                    'Index PDB1':idx1,
                     'Res2': real_res_2,
                     'Atom2': real_name_2,
+                    'Index PDB2':idx2,
 
                     # Wyniki
                     'Exp_Target': war_porow_f,
