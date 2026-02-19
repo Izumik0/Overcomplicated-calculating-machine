@@ -34,7 +34,7 @@ traj = mdtraj.load(args.struct)
 
 #Wczytanie pliku ze strukturą z pliku .pdb - robocze póki co
 kolumny_pdb = [
-    (0, 6),  #Kolumna z typem co to jest czyli w naszym przypadku przeszukujemy ATOMS
+    (0, 6),  #Kolumna z typem co to jest czyli w naszym przypadku przeszukujemy ATOM
     (6, 11),  #indeks atomu
     (12, 16),  #nazwa atomu
     (22, 30),  #nr. cząsteczki
@@ -93,7 +93,6 @@ def pobierz_grupe_indeksow(nr_res, nazwa_atom, mapa):
 #początek tworzenia trajektorii dla dobrych w VMD
 nazwa_tcl_ok = "spelnione_vizu.tcl"
 sciezka_tcl_ok = os.path.join(args.out, nazwa_tcl_ok)
-
 f_tcl_ok = open(sciezka_tcl_ok, "w", encoding="utf-8")
 f_tcl_ok.write("# Skrypt wizualizacji par NOE dla VMD\n")
 f_tcl_ok.write("# Użycie w VMD: Extensions -> Tk Console -> wpisz: source visualize_NOE.tcl\n")
@@ -102,9 +101,15 @@ f_tcl_ok.write("# Użycie w VMD: Extensions -> Tk Console -> wpisz: source visua
 nazwa_tcl_border = "vmd_borderline.tcl"
 sciezka_tcl_border = os.path.join(args.out, nazwa_tcl_border)
 f_tcl_border = open(sciezka_tcl_border, "w", encoding="utf-8")
-
 f_tcl_border.write("# Pary na granicy (0 < Diff <= 0.5)\n")
 f_tcl_border.write("color Labels Bonds orange\n")
+
+#trajektorie tych niespełnionych
+nazwa_tcl_bad = "vmd_bad.tcl"
+sciezka_tcl_bad = os.path.join(args.out, nazwa_tcl_bad)
+f_tcl_bad = open(sciezka_tcl_bad, "w", encoding="utf-8")
+f_tcl_bad.write("# Pary niespełnione (Diff > 0.5)\n")
+f_tcl_bad.write("color Labels Bonds red\n")
 
 brak_par = []
 pary = []
@@ -212,6 +217,9 @@ with (open(args.noe, 'r', encoding='utf-8') as NOE_file):
         elif 0 < naj_exp <= limit_granicy:
             f_tcl_border.write(f"label add Bonds 0/{id_at_1_win} 0/{id_at_2_win}\n")
 
+        else:
+            f_tcl_bad.write(f"label add Bonds 0/{id_at_1_win} 0/{id_at_2_win}\n")
+
 total_noe = len(lista_najlepszych_roznic)
 
 if total_noe > 0:
@@ -269,8 +277,6 @@ if total_noe > 0:
 else:
     print("Nie znaleziono żadnych więzów do analizy.")
 
-    #print(f"Zadanie ukończono, macierze zapisano w: {args.out}")
-
 #liczy zajebiście bo porównałem z VMD i wmiare pasuje to wszystko - ale potem więcej posprawdzam tych par atomów
 #Zapis do pliku też jest git ja poprostu nie na tą pare spojrzałem ;p
 
@@ -291,4 +297,5 @@ with (open(s_raport, 'w', encoding='utf-8')) as s_file:
 
 f_tcl_ok.close()
 f_tcl_border.close()
+f_tcl_bad.close()
 print("Powstał plik z wizualizacją VMD w:", {sciezka_tcl_ok})
