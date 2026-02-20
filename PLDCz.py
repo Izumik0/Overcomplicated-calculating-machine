@@ -16,8 +16,7 @@ parser = argparse.ArgumentParser(
 #utworzenie flag dla programu
 parser.add_argument('-s', '--struct', type=str, required=True, help='Ścieżka do pliku struktury (np. structure.pdb)')
 parser.add_argument('-n', '--noe', type=str, required=True, help='Ścieżka do pliku z danymi NOE (.txt)')
-parser.add_argument('-o', '--out', type=str, default='wyniki_noe',
-                    help='Nazwa folderu na wyniki (domyślnie: wyniki_noe)')
+parser.add_argument('-o', '--out', type=str, default='wyniki_noe', help='Nazwa folderu na wyniki (domyślnie: wyniki_noe)')
 
 args = parser.parse_args()
 
