@@ -8,6 +8,8 @@ import mdtraj
 import glob
 from biopandas.pdb import PandasPdb
 import concurrent.futures
+import time
+import datetime
 
 # Argumenty dla konsoli
 parser = argparse.ArgumentParser(
@@ -175,8 +177,10 @@ if __name__ == "__main__":
     wyniki_zbiorcze = []
 
     print(f"🚀 Odpalam masową analizę {len(pliki_pdb)} plików na wielu rdzeniach...")
+    start_time = time.time()
+    total_files = len(pliki_pdb)
 
-    # 4. Multiprocessing - Zwróć uwagę na WCIĘCIA! Wszystko jest przesunięte w prawo.
+    # 4. Multiprocessing - jebu jebu na kazdym rdzeniu
     with concurrent.futures.ProcessPoolExecutor() as executor:
 
         futures = {executor.submit(analiza_pdb, sciezka, linie_noe): sciezka for sciezka in pliki_pdb}
@@ -195,7 +199,18 @@ if __name__ == "__main__":
                     "%Zle": wynik[6],
                     'Status': wynik[7]
                 })
-                print(f"[{i}/{len(pliki_pdb)}] Przeanalizowano: {os.path.basename(sciezka)}")
+
+
+                # --- MAGIA ETA ---
+                elapsed_time = time.time() - start_time  # Ile czasu minęło od startu
+                avg_time_per_file = elapsed_time / i  # Średni czas na jeden plik
+                files_left = total_files - i  # Ile plików zostało
+                eta_seconds = int(avg_time_per_file * files_left)  # Przewidywany czas w sekundach
+
+                # Formatujemy sekundy do ładnego HH:MM:SS
+                eta_str = str(datetime.timedelta(seconds=eta_seconds))
+
+                print(f"[{i}/{total_files}] Przeanalizowano: {os.path.basename(sciezka)} | ETA: {eta_str}")
 
             except Exception as exc:  # <--- TUTAJ POPRAWIONA LITERÓWKA (Exception)
                 print(f"❌ Plik {os.path.basename(sciezka)} wygenerował błąd: {exc}")
