@@ -218,7 +218,7 @@ with concurrent.futures.ProcessPoolExecutor()as executor:
 
     for numer_klatki, wynik in wyniki_sort:
         wyniki_zbiorcze.append({
-            'Plik': f"Klatka_{numer_klatki + 1}",
+            'Plik': f"Klatka_{numer_klatki}",
             'OK': wynik[0],
             '%OK': wynik[1],
             'Na_granicy': wynik[2],
