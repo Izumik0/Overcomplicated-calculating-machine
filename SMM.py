@@ -55,8 +55,6 @@ def pobierz_grupe_indeksow(nr_res, nazwa_atom, mapa):
 
     return list(set(indeksy))
 
-    # Zwracamy listę bez duplikatów
-    return list(set(indeksy))
 
 # Analiza pliku pdb - fancy funkcja
 
@@ -130,7 +128,6 @@ def analiza_pdb (sciezka_pdb, linie_noe):
             roznice_wszystkich = srednie_dla_par - war_porow_f
             #Do vmd ogarnianie par
             ind_win = np.argmin(roznice_wszystkich)
-
             naj_exp=roznice_wszystkich[ind_win]
 
 
