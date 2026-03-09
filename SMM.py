@@ -143,6 +143,7 @@ if __name__ == "__main__":
     # 1. Start rejestru RAM - for debug purpuse
     tracemalloc.start()
 
+
     # 2. Wczytywanie NOE
     print(f"Wczytuję plik NOE: {args.noe} ...")
     with open(args.noe, 'r') as f:
@@ -152,7 +153,7 @@ if __name__ == "__main__":
     # Wczytanie trajektorii .xtc
     print (f"Ładowanie trajektorii {args.traj} na podstawie {args.top}")
     sucha_traj=suszarka(args.traj, args.tpr, args.out)
-    traj = mdtraj.load(sucha_traj, top=args.top)
+    loaded = mdtraj.load(sucha_traj, top=args.top)
     dpdb = PandasPdb().read_pdb(args.top).df['ATOM']
 
     # Mapa poprawek ozmaczen atomow
@@ -185,36 +186,36 @@ if __name__ == "__main__":
     wyniki_nonsort=[]
     start_time = time.time()
 
-with concurrent.futures.ProcessPoolExecutor()as executor:
+    with concurrent.futures.ProcessPoolExecutor()as executor:
 
-    przyszle_wyniki={}
-    for i in range(traj.n_frames):
-        poj_klatka=traj[i]
-        zadanie = executor.submit(analiza_pdb, poj_klatka, linie_noe, mapa_indeksow)
-        przyszle_wyniki[zadanie]=i
+        przyszle_wyniki={}
+        for i in range(loaded.n_frames):
+            poj_klatka=loaded[i]
+            zadanie = executor.submit(analiza_pdb, poj_klatka, linie_noe, mapa_indeksow)
+            przyszle_wyniki[zadanie]=i
 
-    zrobione=0
-    for zadanie in concurrent.futures.as_completed(przyszle_wyniki):
-        numer_klatki=przyszle_wyniki[zadanie]
-        wynik=zadanie.result()
-        wyniki_nonsort.append((numer_klatki, wynik))
-        zrobione += 1
+        zrobione=0
+        for zadanie in concurrent.futures.as_completed(przyszle_wyniki):
+            numer_klatki=przyszle_wyniki[zadanie]
+            wynik=zadanie.result()
+            wyniki_nonsort.append((numer_klatki, wynik))
+            zrobione += 1
 
-        # --- MAGIA ETA ---
-        elapsed_time = time.time() - start_time  # Ile czasu minęło od startu
-        avg_time_per_file = elapsed_time / zrobione  # Średni czas na jeden plik
-        files_left = traj.n_frames - zrobione  # Ile plików zostało
-        eta_seconds = int(avg_time_per_file * files_left)  # Przewidywany czas w sekundach
+            # --- MAGIA ETA ---
+            elapsed_time = time.time() - start_time  # Ile czasu minęło od startu
+            avg_time_per_file = elapsed_time / zrobione  # Średni czas na jeden plik
+            files_left = loaded.n_frames - zrobione  # Ile plików zostało
+            eta_seconds = int(avg_time_per_file * files_left)  # Przewidywany czas w sekundach
 
-        current, peak = tracemalloc.get_traced_memory()
+            current, peak = tracemalloc.get_traced_memory()
 
         # Formatujemy sekundy do ładnego HH:MM:SS
-        eta_str = str(datetime.timedelta(seconds=eta_seconds))
+            eta_str = str(datetime.timedelta(seconds=eta_seconds))
 
-        print(f"[{zrobione}/{traj.n_frames}] | ETA: {eta_str} | Obecne zużycie RAM[MB]: {current/10**6:.2f} | Szczytowe zużycie RAM[MB]: {peak/10**6:.2f}")
+            print(f"[{zrobione}/{loaded.n_frames}] | ETA: {eta_str} | Obecne zużycie RAM[MB]: {current/10**6:.2f} | Szczytowe zużycie RAM[MB]: {peak/10**6:.2f}")
 
-    wyniki_sort=sorted(wyniki_nonsort, key=lambda x: x[0])
-    wyniki_zbiorcze=[]
+        wyniki_sort=sorted(wyniki_nonsort, key=lambda x: x[0])
+        wyniki_zbiorcze=[]
 
     for numer_klatki, wynik in wyniki_sort:
         wyniki_zbiorcze.append({
