@@ -230,29 +230,9 @@ if __name__ == "__main__":
         })
 
     df_wyniki = pd.DataFrame(wyniki_zbiorcze)
-    sciezka_raportu = os.path.join(args.out, "ZBIORCZY_RAPORT_NOE.csv")
+    sciezka_raportu = os.path.join(args.out, "RAPORT.csv")
     df_wyniki.to_csv(sciezka_raportu, sep=';', index=False)
 
-
-# ------------------------------------- To zostanie zastąpione ----------------------------------------------------
-    # HISTOGRAM
-    plt.figure(figsize=[10, 10])
-    plt.hist(df_wyniki['%OK'], bins=20, color='green', edgecolor='black')
-    plt.title('Rozkład zgodności')
-    plt.xlabel('Procent zgodności więzów')
-    plt.ylabel('Liczba klatek')
-    plt.savefig(os.path.join(args.out, "histogram.png"), dpi=300, bbox_inches='tight' )
-    plt.close()
-
-
-    # Dryf w czasie
-    plt.scatter(klatki, df_wyniki['%OK'], c = 'red')
-    plt.plot(klatki, df_wyniki['%OK'])
-    plt.xlabel('Klatka')
-    plt.ylabel('Procent zgodnosci więzów [%]')
-    plt.title('Dryf w czasie')
-    plt.savefig(os.path.join(args.out, "dryf.png"), dpi=600, bbox_inches='tight' )
-    plt.close()
 
     print(f'Wszystkie pliki z analizy zapisano w: {args.out}')
 
