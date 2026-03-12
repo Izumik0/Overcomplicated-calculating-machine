@@ -216,8 +216,9 @@ if __name__ == "__main__":
 
         wyniki_sort=sorted(wyniki_nonsort, key=lambda x: x[0])
         wyniki_zbiorcze=[]
-
+        klatki=[]
     for numer_klatki, wynik in wyniki_sort:
+        klatki.append(numer_klatki)
         wyniki_zbiorcze.append({
             'Plik': f"Klatka_{numer_klatki}",
             'OK': wynik[0],
@@ -233,16 +234,28 @@ if __name__ == "__main__":
     sciezka_raportu = os.path.join(args.out, "ZBIORCZY_RAPORT_NOE.csv")
     df_wyniki.to_csv(sciezka_raportu, sep=';', index=False)
 
-    #hISTOGRAM
+    # HISTOGRAM
     plt.figure(figsize=[10, 10])
     plt.hist(df_wyniki['%OK'], bins=20, color='green', edgecolor='black')
     plt.title('Rozkład zgodności')
     plt.xlabel('Procent zgodności więzów')
     plt.ylabel('Liczba klatek')
-    sciezka_wykresu=os.path.join(args.out, "histogram.png")
-    plt.savefig(sciezka_wykresu, dpi=300, bbox_inches='tight' )
+    plt.savefig(os.path.join(args.out, "histogram.png"), dpi=300, bbox_inches='tight' )
     plt.close()
-    print(f"\n✅ Zakończono! Zapisano zbiorczy raport: {sciezka_raportu}")
+
+
+    # Dryf w czasie
+    plt.scatter(klatki, df_wyniki['%OK'], c = 'red')
+    plt.plot(klatki, df_wyniki['%OK'])
+    plt.xlabel('Klatka')
+    plt.ylabel('Procent zgodnosci więzów [%]')
+    plt.title('Dryf w czasie')
+    plt.savefig(os.path.join(args.out, "dryf.png"), dpi=300 ,bbox_inches='tight' )
+    plt.close()
+
+    print(f'Wszystkie pliki z analizy zapisano w: {args.out}')
+
+
 
 
 
