@@ -62,24 +62,23 @@ def pobierz_grupe_indeksow(nr_res, nazwa_atom, mapa):
     czysty_nr = str(nr_res).strip()
     czysty_atom = str(nazwa_atom).strip()
 
-    # Szukamy klucza tekstowego tak, jak go zapisaliśmy w pętli PDB
     klucz_glowny = f"{czysty_nr}_{czysty_atom}"
     indeksy = list(mapa.get(klucz_glowny, []))
 
-    # Logika dodawania bliźniaków
     if czysty_atom in atom_blizniaki:
         nazwa_blizniaka = atom_blizniaki[czysty_atom]
         klucz_blizniaka = f"{czysty_nr}_{nazwa_blizniaka}"
         indeksy_blizniaka = list(mapa.get(klucz_blizniaka, []))
         indeksy.extend(indeksy_blizniaka)
 
-    return list(set(indeksy))
-
+    # BARDZO WAŻNE: sorted() gwarantuje, że pary nie pomieszają się na wielu rdzeniach!
+    return sorted(list(set(indeksy)))
 
 # Analiza pliku pdb - fancy funkcja
 
 def analiza_pdb (plik, linie_noe, mapa_indeksow):
     lista_najlepszych_roz=[]
+    lista_sr_odl=[]
 
     for line in linie_noe:
             nr_N_1 = line.split()[0]
@@ -94,6 +93,7 @@ def analiza_pdb (plik, linie_noe, mapa_indeksow):
 
             # system pomijania pustych par
             if len(indeks_1) == 0 or len(indeks_2) == 0:
+                lista_sr_odl.append(np.array([]))
                 continue
 
             # powrót do black boxa
@@ -104,12 +104,14 @@ def analiza_pdb (plik, linie_noe, mapa_indeksow):
 
             #oblicza odległości na podstawie par które zostały utworzone
             #odległości są przedstawiane w macierzy gdzie kolumny to te same atomy_1 z rórnych czasetek a wiersze to tak samo ale atomy_2
-            odleglosci = mdtraj.compute_distances(plik, pary)  # tu jest odległość w nm
-            odleglosci_a = odleglosci * 10  #odległości w arstrongach czy jak się to nazywa
+            odleglosci = mdtraj.compute_distances(plik, pary) # tu jest odległość w nm
+            odleglosci_a = odleglosci*10
+            odleglosci_a_f = (odleglosci * 10).flatten()  #odległości w arstrongach czy jak się to nazywa
+            lista_sr_odl.append(odleglosci_a_f)
 
             for i, (indeks_1, indeks_2) in enumerate(pary):
-                srednie_dla_par = np.mean(odleglosci_a, axis=0)
-                roznice_wszystkich = srednie_dla_par - war_porow_f
+                #srednie_dla_par = np.mean(odleglosci_a, axis=0)
+                roznice_wszystkich = odleglosci_a[0] - war_porow_f
                 #Do vmd ogarnianie par
                 ind_win = np.argmin(roznice_wszystkich)
                 naj_exp=roznice_wszystkich[ind_win]
@@ -117,6 +119,7 @@ def analiza_pdb (plik, linie_noe, mapa_indeksow):
 
             # Dodajemy ją do głównej listy statystyk (do raportu końcowego)
             lista_najlepszych_roz.append(naj_exp)
+
 
     arr_diff = np.array(lista_najlepszych_roz)
     ilosc=len(arr_diff)
@@ -135,7 +138,82 @@ def analiza_pdb (plik, linie_noe, mapa_indeksow):
         count_borderline = 0.0
         count_bad = 0.0
 
-    return count_ok, proc_ok, count_borderline, proc_borderline, count_bad, proc_bad, "OK"
+    return count_ok, proc_ok, count_borderline, proc_borderline, count_bad, proc_bad, lista_sr_odl, arr_diff
+
+def atomy_dla_kata(nazwa_kata, nr_res, res_name):
+    nr = int(nr_res)
+    nazwa = nazwa_kata.upper()
+    if nazwa == 'ALPHA': return [(nr-1, "O3'"), (nr, "P"), (nr, "O5'"), (nr, "C5'")]
+    elif nazwa == 'BETA': return [(nr, "P"), (nr, "O5'"), (nr, "C5'"), (nr, "C4'")]
+    elif nazwa == 'GAMMA': return [(nr, "O5'"), (nr, "C5'"), (nr, "C4'"), (nr, "C3'")]
+    elif nazwa == 'NU1': return [(nr, "O4'"), (nr, "C1'"), (nr, "C2'"), (nr, "C3'")]
+    elif nazwa == 'ZETA': return [(nr, "C3'"), (nr, "O3'"), (nr+1, "P"), (nr+1, "O5'")]
+    elif nazwa == 'CHI':
+        if res_name.upper() in ['A', 'G', 'DA', 'DG']:
+            return [(nr, "O4'"), (nr, "C1'"), (nr, "N9"), (nr, "C4")]
+        else:
+            return [(nr, "O4'"), (nr, "C1'"), (nr, "N1"), (nr, "C2")]
+    return []
+
+def build_czworke(definicja_atomow, mapa_indeksow):
+    czworka = []
+    for nr, atom in definicja_atomow:
+        klucz = f"{nr}_{atom}"
+        indeksy = mapa_indeksow.get(klucz, [])
+        if not indeksy: return None # Pomijamy, jeśli brakuje atomu (np. brzeg łańcucha)
+        czworka.append(indeksy[0] - 1)
+    return czworka
+
+def analiza_katow(plik, linie_katy, mapa_indeksow):
+    if not linie_katy:
+        return 0, 0.0, 0, 0.0
+
+    czworki_lista = []
+    limity = []
+
+    for line in linie_katy:
+        kolumny = line.split()
+        nr_res = kolumny[0]
+        res_name = kolumny[1]
+        nazwa_kata = kolumny[2].upper()
+        limit_min = float(kolumny[3])
+        limit_max = float(kolumny[4])
+
+        definicja = atomy_dla_kata(nazwa_kata, nr_res, res_name)
+        czworka = build_czworke(definicja, mapa_indeksow)
+
+        if czworka:
+            czworki_lista.append(czworka)
+            limity.append((limit_min, limit_max))
+
+    if not czworki_lista:
+        return 0, 0.0, 0, 0.0
+
+    katy_radiany = mdtraj.compute_dihedrals(plik, czworki_lista)
+    katy_stopnie = np.rad2deg(katy_radiany[0])
+
+    count_ok_k = 0
+    count_bad_k = 0
+    kat_lista=[]
+    for kat, (l_min, l_max) in zip(katy_stopnie, limity):
+        # Korekta ujemnych kątów (żeby np. -120 pasowało do przedziału 200-300 jeśli taki ustawiono)
+        kat_znormalizowany = kat + 360 if (kat < 0 and l_min >= 0) else kat
+        kat_lista.append(kat_znormalizowany)
+
+        if l_min <= kat_znormalizowany <= l_max:
+            count_ok_k += 1
+        else:
+            count_bad_k += 1
+
+    ilosc_kant=len(czworki_lista)
+    proc_ok_k=(count_ok_k/ilosc_kant)*100
+    proc_bad_k=(count_bad_k/ilosc_kant)*100
+    return count_ok_k, proc_ok_k, count_bad_k, proc_bad_k, kat_lista
+
+def obl_core(anything, linie_noe, linie_katy, mapa_indeksow):
+    wyniki_noe = analiza_pdb(anything, linie_noe, mapa_indeksow)
+    wyniki_katy = analiza_katow(anything, linie_katy, mapa_indeksow)
+    return wyniki_noe, wyniki_katy
 
 # Glowny mech dzialania skryptu
 if __name__ == "__main__":
@@ -143,12 +221,21 @@ if __name__ == "__main__":
     # 1. Start rejestru RAM - for debug purpuse
     tracemalloc.start()
 
-
     # 2. Wczytywanie NOE
+    linie_noe = []
+    linie_katy = []
+    zdefiniowane_katy = {'ALPHA', 'BETA', 'GAMMA', 'ZETA', 'NU1', 'CHI'}
     print(f"Wczytuję plik NOE: {args.noe} ...")
-    with open(args.noe, 'r') as f:
-        linie_noe = [l.strip() for l in f.readlines() if l.strip()]
 
+    with open(args.noe, 'r') as f:
+        for l in f.readlines():
+            l=l.strip()
+            if not l: continue
+            kolumny = l.split()
+            if len(kolumny) >= 3 and kolumny[2].upper() in zdefiniowane_katy:
+                linie_katy.append(l)
+            else: linie_noe.append(l)
+    print(f"Znaleziono {len(linie_noe)} więzów odległościowych (NOE) oraz {len(linie_katy)} więzów kątowych.")
 
     # Wczytanie trajektorii .xtc
     print (f"Ładowanie trajektorii {args.traj} na podstawie {args.top}")
@@ -190,8 +277,7 @@ if __name__ == "__main__":
 
         przyszle_wyniki={}
         for i in range(loaded.n_frames):
-            poj_klatka=loaded[i]
-            zadanie = executor.submit(analiza_pdb, poj_klatka, linie_noe, mapa_indeksow)
+            zadanie = executor.submit(obl_core, loaded[i], linie_noe, linie_katy, mapa_indeksow)
             przyszle_wyniki[zadanie]=i
 
         zrobione=0
@@ -217,26 +303,148 @@ if __name__ == "__main__":
         wyniki_sort=sorted(wyniki_nonsort, key=lambda x: x[0])
         wyniki_zbiorcze=[]
         klatki=[]
+        srednia_biezaca_noe = None
+        srednia_biezaca_katy = None
+        historia_katow_w_czasie = []
     for numer_klatki, wynik in wyniki_sort:
+        wynik_noe, wynik_katy=wynik
+        n = numer_klatki + 1  # Licznik klatek (1, 2, 3...)
+        wartosci_sred=wynik_noe[6]
+        # --- 1. Aktualizacja średniej dla NOE ---
+        if srednia_biezaca_noe is None:
+            # Kopiujemy tablice do nowej listy
+            srednia_biezaca_noe = [np.copy(tablica) for tablica in wartosci_sred]
+        else:
+            for i in range(len(wartosci_sred)):
+                # Bezpieczne nadpisywanie tablicy nową wartością średniej
+                srednia_biezaca_noe[i] = srednia_biezaca_noe[i] + (
+                            wartosci_sred[i] - srednia_biezaca_noe[i]) / n
+
+        # --- 2. Aktualizacja średniej dla Kątów ---
+        wartosci_katy_klatka = wynik_katy[-1] if len(wynik_katy) > 0 else []
+        if type(wartosci_katy_klatka) is not str and len(wartosci_katy_klatka) > 0:
+
+            # ZAPISUJEMY PEŁNĄ HISTORIĘ KLATKI DO WYKRESÓW:
+            historia_katow_w_czasie.append(wartosci_katy_klatka)
+
+            wartosci_katy_np = np.array(wartosci_katy_klatka)
+            if srednia_biezaca_katy is None:
+                srednia_biezaca_katy = np.copy(wartosci_katy_np)
+            else:
+                srednia_biezaca_katy += (wartosci_katy_np - srednia_biezaca_katy) / n
+
         wyniki_zbiorcze.append({
             'Klatka': f"{numer_klatki}",
-            'OK': wynik[0],
-            '%OK': wynik[1],
-            'Na_granicy': wynik[2],
-            '%Na_granicy': wynik[3],
-            'Zle': wynik[4],
-            "%Zle": wynik[5],
-            'Status': wynik[6]
+            'OK': wynik_noe[0],
+            '%OK': wynik_noe[1],
+            'Na_granicy': wynik_noe[2],
+            '%Na_granicy': wynik_noe[3],
+            'Zle': wynik_noe[4],
+            "%Zle": wynik_noe[5],
+            'Kąty_Ok': wynik_katy[0],
+            '% Kąty_Ok': wynik_katy[1],
+            'Kąty_Żle': wynik_katy[2],
+            '% Kąty_Złe': wynik_katy[3]
         })
 
+
     df_wyniki = pd.DataFrame(wyniki_zbiorcze)
-    sciezka_raportu = os.path.join(args.out, "RAPORT.csv")
+    sciezka_raportu = os.path.join(args.out, "RAPORT_NOE.csv")
     df_wyniki.to_csv(sciezka_raportu, sep=';', index=False)
 
+    print("\n📊 Generowanie Pełnego Raportu wszystkich wygenerowanych par...")
+
+    # Wczytujemy ORYGINALNĄ topologię (sprzed czyszczenia), żeby wyciągnąć prawdziwe nazwy PDB np. H5'1
+    oryginalne_pdb = PandasPdb().read_pdb(args.top).df['ATOM']
+    indeks_do_nazwy = {}
+    for index, row in oryginalne_pdb.iterrows():
+        indeks_do_nazwy[row['atom_number']] = (str(row['residue_number']).strip(), str(row['atom_name']).strip())
+
+    raport_sredni = []
+
+    if srednia_biezaca_noe is not None:
+        for linia, srednia_wszystkie in zip(linie_noe, srednia_biezaca_noe):
+            kolumny = linia.split()
+            if len(kolumny) < 6:
+                continue
+
+            nr_N_1, atom_1 = kolumny[0], kolumny[1]
+            nr_N_2, atom_2 = kolumny[2], kolumny[3]
+            war_porow_f = float(kolumny[5])
+
+            input_query = f"{nr_N_1} {atom_1} - {nr_N_2} {atom_2}"
+
+            # Ponownie generujemy pary w identycznej kolejności jak rdzeń obliczeniowy
+            indeks_1 = pobierz_grupe_indeksow(nr_N_1, atom_1, mapa_indeksow)
+            indeks_2 = pobierz_grupe_indeksow(nr_N_2, atom_2, mapa_indeksow)
+
+            if not indeks_1 or not indeks_2:
+                continue
+
+            pary_str = list(itertools.product(indeks_1, indeks_2))
+            roznice_grupy = [abs(float(mean) - war_porow_f) for mean in srednia_wszystkie]
+            najlepszy_wynik_w_grupie = min(roznice_grupy) if roznice_grupy else None
+            # Łączymy wygenerowaną parę z jej fizyczną średnią
+            for (idx1, idx2), sim_mean in zip(pary_str, np.array(srednia_wszystkie).flatten()):
+                # Odpytujemy słownik o prawdziwe nazwy z PDB dla danych indeksów
+                res1, a_name1 = indeks_do_nazwy.get(idx1, (nr_N_1, atom_1))
+                res2, a_name2 = indeks_do_nazwy.get(idx2, (nr_N_2, atom_2))
+
+
+                diff = float(sim_mean) - war_porow_f
+                is_twin = "YES" if (najlepszy_wynik_w_grupie is not None and abs(diff) == najlepszy_wynik_w_grupie) else "NO"
+                # Zapisujemy rozdzielone dane, wiersz po wierszu
+                raport_sredni.append({
+                    'Input_Query': input_query,
+                    'Res1': res1,
+                    'Atom1': a_name1,
+                    'Index PDB1': idx1,
+                    'Res2': res2,
+                    'Atom2': a_name2,
+                    'Index PDB2': idx2,
+                    'Exp_Target': war_porow_f,
+                    'Sim_Mean': sim_mean,
+                    'Diff': diff,
+                    'Is_Best_Pair?': is_twin
+                })
+
+    # Tutaj możesz wstawić z powrotem stary kod do zapisywania kątów (jeśli ich wciąż używasz)
+    if srednia_biezaca_katy is not None:
+        for linia, srednia in zip(linie_katy, srednia_biezaca_katy):
+            raport_sredni.append({
+                'Typ': 'KAT (Stopnie)',
+                'Definicja_w_pliku': linia,
+                'średnii_kąt': round(srednia, 2)
+            })
+
+    if raport_sredni:
+        df_srednie = pd.DataFrame(raport_sredni)
+        sciezka_srednie = os.path.join(args.out, "Pelny_sr_Raport.csv")
+        # Zapis parametrem decimal=',' zapewnia idealne wczytywanie ułamków przez polskiego Excela
+        df_srednie.to_csv(sciezka_srednie, sep=';', index=False, decimal=',')
+        print(f"✅ Zapisano pełny, rozdzielony raport więzów: {sciezka_srednie}")
+
+    if historia_katow_w_czasie:
+        print("\n📈 Generowanie historii kątów do wykresów...")
+
+        # Zamieniamy naszą listę na macierz i transponujemy (.T),
+        # żeby wiersze to były konkretne kąty, a kolumny to upływający czas (klatki)
+        macierz_katow = np.array(historia_katow_w_czasie).T
+
+        raport_historia_katow = []
+        nazwy_kolumn = ["_".join(linia.split()[:4]) for linia in linie_katy]
+
+        for idx_klatki, wartosci_w_klatce in enumerate(historia_katow_w_czasie):
+            wiersz = {'Klatka': idx_klatki + 1}
+            for nazwa_kata, wartosc in zip(nazwy_kolumn, wartosci_w_klatce):
+                wiersz[nazwa_kata] = round(wartosc, 2)
+            raport_historia_katow.append(wiersz)
+
+        df_historia_katow = pd.DataFrame(raport_historia_katow)
+        sciezka_hist_katow = os.path.join(args.out, "Historia_Katow_Wykresy.csv")
+
+        # Zapis parametrem decimal=',' zapewnia wsparcie dla polskiego Excela
+        df_historia_katow.to_csv(sciezka_hist_katow, sep=';', index=False, decimal=',')
+        print(f"✅ Zapisano plik z historią kątów (gotowy na wykresy!): {sciezka_hist_katow}")
 
     print(f'Wszystkie pliki z analizy zapisano w: {args.out}')
-
-
-
-
-
