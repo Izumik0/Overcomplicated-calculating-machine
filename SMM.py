@@ -4,7 +4,7 @@ import itertools
 import numpy as np
 import pandas as pd
 import mdtraj
-import glob
+import glob, gc
 from biopandas.pdb import PandasPdb
 import matplotlib.pyplot as plt
 
@@ -105,7 +105,7 @@ def analiza_pdb (plik, linie_noe, mapa_indeksow):
             #oblicza odległości na podstawie par które zostały utworzone
             #odległości są przedstawiane w macierzy gdzie kolumny to te same atomy_1 z rórnych czasetek a wiersze to tak samo ale atomy_2
             odleglosci = mdtraj.compute_distances(plik, pary) # tu jest odległość w nm
-            odleglosci_a = odleglosci*10
+            odleglosci_a = (odleglosci*10).astype(np.float32)
             odleglosci_a_f = (odleglosci * 10).flatten()  #odległości w arstrongach czy jak się to nazywa
             lista_sr_odl.append(odleglosci_a_f)
 
@@ -190,7 +190,7 @@ def analiza_katow(plik, linie_katy, mapa_indeksow):
         return 0, 0.0, 0, 0.0
 
     katy_radiany = mdtraj.compute_dihedrals(plik, czworki_lista)
-    katy_stopnie = np.rad2deg(katy_radiany[0])
+    katy_stopnie = np.rad2deg(katy_radiany[0]).astype(np.float32)
 
     count_ok_k = 0
     count_bad_k = 0
@@ -221,6 +221,10 @@ if __name__ == "__main__":
     # 1. Start rejestru RAM - for debug purpuse
     tracemalloc.start()
 
+    # Do RAMu - klatki itp
+    rozmiar_chunka=250
+    globe_klatka=0
+
     # 2. Wczytywanie NOE
     linie_noe = []
     linie_katy = []
@@ -240,7 +244,7 @@ if __name__ == "__main__":
     # Wczytanie trajektorii .xtc
     print (f"Ładowanie trajektorii {args.traj} na podstawie {args.top}")
     sucha_traj=suszarka(args.traj, args.tpr, args.out)
-    loaded = mdtraj.load(sucha_traj, top=args.top)
+    #loaded = mdtraj.load(sucha_traj, top=args.top)
     dpdb = PandasPdb().read_pdb(args.top).df['ATOM']
 
     # Mapa poprawek ozmaczen atomow
@@ -274,31 +278,35 @@ if __name__ == "__main__":
     start_time = time.time()
 
     with concurrent.futures.ProcessPoolExecutor()as executor:
+        for klatka_pack in mdtraj.iterload(sucha_traj, top=args.top, chunk=rozmiar_chunka):
+            lista_zadan_paczka=[]
+            for klatka in klatka_pack:
+                zadanie = executor.submit(obl_core, klatka, linie_noe, linie_katy, mapa_indeksow)
+                lista_zadan_paczka.append((globe_klatka, zadanie))
+                globe_klatka+=1
 
-        przyszle_wyniki={}
-        for i in range(loaded.n_frames):
-            zadanie = executor.submit(obl_core, loaded[i], linie_noe, linie_katy, mapa_indeksow)
-            przyszle_wyniki[zadanie]=i
-
-        zrobione=0
-        for zadanie in concurrent.futures.as_completed(przyszle_wyniki):
-            numer_klatki=przyszle_wyniki[zadanie]
-            wynik=zadanie.result()
-            wyniki_nonsort.append((numer_klatki, wynik))
-            zrobione += 1
+            for numer_klatki, zadanie in lista_zadan_paczka:
+                try:
+                    wynik=zadanie.result()
+                    wyniki_nonsort.append((numer_klatki,wynik))
+                except Exception as e:
+                    print(e)
+            del klatka_pack
+            del lista_zadan_paczka
+            gc.collect()
 
             # --- MAGIA ETA ---
-            elapsed_time = time.time() - start_time  # Ile czasu minęło od startu
-            avg_time_per_file = elapsed_time / zrobione  # Średni czas na jeden plik
-            files_left = loaded.n_frames - zrobione  # Ile plików zostało
-            eta_seconds = int(avg_time_per_file * files_left)  # Przewidywany czas w sekundach
+            #elapsed_time = time.time() - start_time  # Ile czasu minęło od startu
+            #avg_time_per_file = elapsed_time / globe_klatka  # Średni czas na jeden plik
+            #files_left = - globe_klatka  # Ile plików zostało
+            #eta_seconds = int(avg_time_per_file * files_left)  # Przewidywany czas w sekundach
 
             current, peak = tracemalloc.get_traced_memory()
 
         # Formatujemy sekundy do ładnego HH:MM:SS
-            eta_str = str(datetime.timedelta(seconds=eta_seconds))
+            #eta_str = str(datetime.timedelta(seconds=eta_seconds))
 
-            print(f"[{zrobione}/{loaded.n_frames}] | ETA: {eta_str} | Obecne zużycie RAM[MB]: {current/10**6:.2f} | Szczytowe zużycie RAM[MB]: {peak/10**6:.2f}")
+            print(f"[Obecne zużycie RAM[MB]: {current/10**6:.2f} | Szczytowe zużycie RAM[MB]: {peak/10**6:.2f}")
 
         wyniki_sort=sorted(wyniki_nonsort, key=lambda x: x[0])
         wyniki_zbiorcze=[]
@@ -346,7 +354,8 @@ if __name__ == "__main__":
             'Kąty_Żle': wynik_katy[2],
             '% Kąty_Złe': wynik_katy[3]
         })
-
+        if numer_klatki % 50 == 0:
+            gc.collect()
 
     df_wyniki = pd.DataFrame(wyniki_zbiorcze)
     sciezka_raportu = os.path.join(args.out, "RAPORT_NOE.csv")
