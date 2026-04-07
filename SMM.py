@@ -56,8 +56,7 @@ def suszarka(xtc, tpr, out ):
     except subprocess.CalledProcessError:
         print("cos nie działa, sprawdz czy jest gromacs lub dobry plik")
         sys.exit(1)
-
-#szukanie bliźniaków i pobieranie dla nich danych z mapy
+# Pobiera indesky z pliku pdb
 def pobierz_grupe_indeksow(nr_res, nazwa_atom, mapa):
     czysty_nr = str(nr_res).strip()
     czysty_atom = str(nazwa_atom).strip()
@@ -73,9 +72,7 @@ def pobierz_grupe_indeksow(nr_res, nazwa_atom, mapa):
 
     # BARDZO WAŻNE: sorted() gwarantuje, że pary nie pomieszają się na wielu rdzeniach!
     return sorted(list(set(indeksy)))
-
-# Analiza pliku pdb - fancy funkcja
-
+# Analizuje pobrane indeksy i oblicza odległości między atomami
 def analiza_pdb (plik, linie_noe, mapa_indeksow):
     lista_najlepszych_roz=[]
     lista_sr_odl=[]
@@ -154,7 +151,7 @@ def atomy_dla_kata(nazwa_kata, nr_res, res_name):
         else:
             return [(nr, "O4'"), (nr, "C1'"), (nr, "N1"), (nr, "C2")]
     return []
-
+# buduje czwórki indeksów z pliku pdb aby można było obliczyć wartośc kąta dihedralnego
 def build_czworke(definicja_atomow, mapa_indeksow):
     czworka = []
     for nr, atom in definicja_atomow:
@@ -209,7 +206,7 @@ def analiza_katow(plik, linie_katy, mapa_indeksow):
     proc_ok_k=(count_ok_k/ilosc_kant)*100
     proc_bad_k=(count_bad_k/ilosc_kant)*100
     return count_ok_k, proc_ok_k, count_bad_k, proc_bad_k, kat_lista
-
+# spięcie wszystkich funkcji w jedną
 def obl_core(anything, linie_noe, linie_katy, mapa_indeksow):
     wyniki_noe = analiza_pdb(anything, linie_noe, mapa_indeksow)
     wyniki_katy = analiza_katow(anything, linie_katy, mapa_indeksow)
@@ -222,7 +219,7 @@ if __name__ == "__main__":
     tracemalloc.start()
 
     # Do RAMu - klatki itp
-    rozmiar_chunka=250
+    rozmiar_chunka=500
     globe_klatka=0
 
     # 2. Wczytywanie NOE
@@ -308,25 +305,58 @@ if __name__ == "__main__":
 
             print(f"[Obecne zużycie RAM[MB]: {current/10**6:.2f} | Szczytowe zużycie RAM[MB]: {peak/10**6:.2f}")
 
-        wyniki_sort=sorted(wyniki_nonsort, key=lambda x: x[0])
-        wyniki_zbiorcze=[]
-        klatki=[]
+        wyniki_sort = sorted(wyniki_nonsort, key=lambda x: x[0])
+        wyniki_zbiorcze = []
+
+        # --- NOWOŚĆ: Wyciągamy limity (Targety) z pliku NOE raz na zawsze ---
+        # --- Wyciągamy limity (Targety) z pliku NOE raz na zawsze ---
+        cele_noe = [float(linia.split()[5]) for linia in linie_noe]
+
         srednia_biezaca_noe = None
+        spelnienie_biezace_noe = None  # Czyste spełnienie (<= Target)
+
         srednia_biezaca_katy = None
         historia_katow_w_czasie = []
+
     for numer_klatki, wynik in wyniki_sort:
-        wynik_noe, wynik_katy=wynik
-        n = numer_klatki + 1  # Licznik klatek (1, 2, 3...)
-        wartosci_sred=wynik_noe[6]
-        # --- 1. Aktualizacja średniej dla NOE ---
+        wynik_noe, wynik_katy = wynik
+        n = numer_klatki + 1
+        wartosci_sred = wynik_noe[6]
+
+        # --- 1. Aktualizacja średniej i SPEŁNIENIA dla NOE ---
         if srednia_biezaca_noe is None:
-            # Kopiujemy tablice do nowej listy
             srednia_biezaca_noe = [np.copy(tablica) for tablica in wartosci_sred]
+            spelnienie_biezace_noe = []
+
+            # Inicjalizacja dla pierwszej klatki z zasadą "Winner takes all"
+            for i in range(len(wartosci_sred)):
+                spelnienie_arr = np.zeros_like(wartosci_sred[i], dtype=np.float32)
+
+                # Szukamy, kto z bliźniaków jest najbliżej
+                best_idx = np.argmin(wartosci_sred[i])
+
+                # Tylko najlepszy może dostać punkt, jeśli mieści się w targecie
+                if wartosci_sred[i][best_idx] <= cele_noe[i]:
+                    spelnienie_arr[best_idx] = 1.0
+
+                spelnienie_biezace_noe.append(spelnienie_arr)
         else:
             for i in range(len(wartosci_sred)):
-                # Bezpieczne nadpisywanie tablicy nową wartością średniej
-                srednia_biezaca_noe[i] = srednia_biezaca_noe[i] + (
-                            wartosci_sred[i] - srednia_biezaca_noe[i]) / n
+                # Klasyczna średnia dystansu
+                srednia_biezaca_noe[i] += (wartosci_sred[i] - srednia_biezaca_noe[i]) / n
+
+                # --- ZASADA: Zwycięzca bierze wszystko ---
+                czy_spelnione = np.zeros_like(wartosci_sred[i], dtype=np.float32)
+
+                # Znajdujemy indeks bliźniaka o NAJMNIEJSZEJ odległości w klatce
+                best_idx = np.argmin(wartosci_sred[i])
+
+                # Tylko NAJLEPSZY dostaje 1.0 (o ile spełnia limit)
+                if wartosci_sred[i][best_idx] <= cele_noe[i]:
+                    czy_spelnione[best_idx] = 1.0
+
+                # Uśredniamy nasze jedynki i zera
+                spelnienie_biezace_noe[i] += (czy_spelnione - spelnienie_biezace_noe[i]) / n
 
         # --- 2. Aktualizacja średniej dla Kątów ---
         wartosci_katy_klatka = wynik_katy[-1] if len(wynik_katy) > 0 else []
@@ -372,7 +402,9 @@ if __name__ == "__main__":
     raport_sredni = []
 
     if srednia_biezaca_noe is not None:
-        for linia, srednia_wszystkie in zip(linie_noe, srednia_biezaca_noe):
+        # Pętla przez wszystkie linijki
+        for linia, srednia_wszystkie, spelnienie_wszystkie in zip(linie_noe, srednia_biezaca_noe,
+                                                                  spelnienie_biezace_noe):
             kolumny = linia.split()
             if len(kolumny) < 6:
                 continue
@@ -383,7 +415,6 @@ if __name__ == "__main__":
 
             input_query = f"{nr_N_1} {atom_1} - {nr_N_2} {atom_2}"
 
-            # Ponownie generujemy pary w identycznej kolejności jak rdzeń obliczeniowy
             indeks_1 = pobierz_grupe_indeksow(nr_N_1, atom_1, mapa_indeksow)
             indeks_2 = pobierz_grupe_indeksow(nr_N_2, atom_2, mapa_indeksow)
 
@@ -393,16 +424,20 @@ if __name__ == "__main__":
             pary_str = list(itertools.product(indeks_1, indeks_2))
             roznice_grupy = [abs(float(mean) - war_porow_f) for mean in srednia_wszystkie]
             najlepszy_wynik_w_grupie = min(roznice_grupy) if roznice_grupy else None
-            # Łączymy wygenerowaną parę z jej fizyczną średnią
-            for (idx1, idx2), sim_mean in zip(pary_str, np.array(srednia_wszystkie).flatten()):
-                # Odpytujemy słownik o prawdziwe nazwy z PDB dla danych indeksów
+
+            # Płaskie listy dla wyników
+            for (idx1, idx2), sim_mean, spelnienie_mean in zip(
+                    pary_str,
+                    np.array(srednia_wszystkie).flatten(),
+                    np.array(spelnienie_wszystkie).flatten()
+            ):
                 res1, a_name1 = indeks_do_nazwy.get(idx1, (nr_N_1, atom_1))
                 res2, a_name2 = indeks_do_nazwy.get(idx2, (nr_N_2, atom_2))
 
-
                 diff = float(sim_mean) - war_porow_f
-                is_twin = "YES" if (najlepszy_wynik_w_grupie is not None and abs(diff) == najlepszy_wynik_w_grupie) else "NO"
-                # Zapisujemy rozdzielone dane, wiersz po wierszu
+                is_twin = "YES" if (
+                            najlepszy_wynik_w_grupie is not None and diff == najlepszy_wynik_w_grupie) else "NO"
+
                 raport_sredni.append({
                     'Input_Query': input_query,
                     'Res1': res1,
@@ -414,7 +449,8 @@ if __name__ == "__main__":
                     'Exp_Target': war_porow_f,
                     'Sim_Mean': sim_mean,
                     'Diff': diff,
-                    'Is_Best_Pair?': is_twin
+                    #'Is_Best_Pair?': is_twin,
+                    '%_Spelnienia': round(float(spelnienie_mean) * 100, 2)  # <--- Jedna, czysta kolumna ze spełnieniem
                 })
 
     # Tutaj możesz wstawić z powrotem stary kod do zapisywania kątów (jeśli ich wciąż używasz)
