@@ -219,7 +219,7 @@ if __name__ == "__main__":
     tracemalloc.start()
 
     # Do RAMu - klatki itp
-    rozmiar_chunka=500
+    rozmiar_chunka=1000
     globe_klatka=0
 
     # 2. Wczytywanie NOE
@@ -274,120 +274,88 @@ if __name__ == "__main__":
     wyniki_nonsort=[]
     start_time = time.time()
 
-    with concurrent.futures.ProcessPoolExecutor()as executor:
+    # Zamiast wyniki_nonsort, tworzymy globalne pojemniki na samym początku:
+    wyniki_zbiorcze = []
+    cele_noe = [float(linia.split()[5]) for linia in linie_noe]
+    srednia_biezaca_noe = None
+    spelnienie_biezace_noe = None
+    srednia_biezaca_katy = None
+    historia_katow_w_czasie = []
+
+    with concurrent.futures.ProcessPoolExecutor() as executor:
         for klatka_pack in mdtraj.iterload(sucha_traj, top=args.top, chunk=rozmiar_chunka):
-            lista_zadan_paczka=[]
+            lista_zadan_paczka = []
+
             for klatka in klatka_pack:
                 zadanie = executor.submit(obl_core, klatka, linie_noe, linie_katy, mapa_indeksow)
                 lista_zadan_paczka.append((globe_klatka, zadanie))
-                globe_klatka+=1
+                globe_klatka += 1
 
+            # Odbieramy wyniki ZAWSZE w poprawnej kolejności dzięki iteracji po liście
             for numer_klatki, zadanie in lista_zadan_paczka:
                 try:
-                    wynik=zadanie.result()
-                    wyniki_nonsort.append((numer_klatki,wynik))
+                    wynik = zadanie.result()
+                    wynik_noe, wynik_katy = wynik
+                    n = numer_klatki + 1
+                    wartosci_sred = wynik_noe[6]
+
+                    # --- 1. Aktualizacja średniej i SPEŁNIENIA dla NOE (W LOCIE) ---
+                    if srednia_biezaca_noe is None:
+                        srednia_biezaca_noe = [np.copy(tablica) for tablica in wartosci_sred]
+                        spelnienie_biezace_noe = []
+
+                        for i in range(len(wartosci_sred)):
+                            spelnienie_arr = np.zeros_like(wartosci_sred[i], dtype=np.float32)
+                            if len(wartosci_sred[i]) > 0:
+                                best_idx = np.argmin(wartosci_sred[i])
+                                if wartosci_sred[i][best_idx] <= cele_noe[i]:
+                                    spelnienie_arr[best_idx] = 1.0
+                            spelnienie_biezace_noe.append(spelnienie_arr)
+                    else:
+                        for i in range(len(wartosci_sred)):
+                            if len(wartosci_sred[i]) > 0:
+                                srednia_biezaca_noe[i] += (wartosci_sred[i] - srednia_biezaca_noe[i]) / n
+                                czy_spelnione = np.zeros_like(wartosci_sred[i], dtype=np.float32)
+                                best_idx = np.argmin(wartosci_sred[i])
+                                if wartosci_sred[i][best_idx] <= cele_noe[i]:
+                                    czy_spelnione[best_idx] = 1.0
+                                spelnienie_biezace_noe[i] += (czy_spelnione - spelnienie_biezace_noe[i]) / n
+
+                    # --- 2. Aktualizacja średniej dla Kątów (W LOCIE) ---
+                    wartosci_katy_klatka = wynik_katy[-1] if len(wynik_katy) > 0 else []
+                    if type(wartosci_katy_klatka) is not str and len(wartosci_katy_klatka) > 0:
+                        historia_katow_w_czasie.append(wartosci_katy_klatka)
+                        wartosci_katy_np = np.array(wartosci_katy_klatka)
+                        if srednia_biezaca_katy is None:
+                            srednia_biezaca_katy = np.copy(wartosci_katy_np)
+                        else:
+                            srednia_biezaca_katy += (wartosci_katy_np - srednia_biezaca_katy) / n
+
+                    # --- 3. Zbieranie wyników klatek do lekkich krotek (Zamiast Słowników!) ---
+                    wyniki_zbiorcze.append((
+                        numer_klatki,
+                        wynik_noe[0], wynik_noe[1], wynik_noe[2], wynik_noe[3], wynik_noe[4], wynik_noe[5],
+                        wynik_katy[0], wynik_katy[1], wynik_katy[2], wynik_katy[3]
+                    ))
+
                 except Exception as e:
-                    print(e)
+                    print(f"Błąd przetwarzania klatki {numer_klatki}: {e}")
+
+            # --- KRYTYCZNE ZWALNIANIE PAMIĘCI RAM ---
+            # Usuwamy ciężkie macierze dystansów z paczki od razu po podliczeniu w nich średnich.
             del klatka_pack
             del lista_zadan_paczka
             gc.collect()
 
-            # --- MAGIA ETA ---
-            #elapsed_time = time.time() - start_time  # Ile czasu minęło od startu
-            #avg_time_per_file = elapsed_time / globe_klatka  # Średni czas na jeden plik
-            #files_left = - globe_klatka  # Ile plików zostało
-            #eta_seconds = int(avg_time_per_file * files_left)  # Przewidywany czas w sekundach
-
             current, peak = tracemalloc.get_traced_memory()
+            print(f"[Przetworzono: {globe_klatka}] RAM: {current / 10 ** 6:.2f} MB | Szczyt: {peak / 10 ** 6:.2f} MB")
 
-        # Formatujemy sekundy do ładnego HH:MM:SS
-            #eta_str = str(datetime.timedelta(seconds=eta_seconds))
+    # --- PO WYJŚCIU Z `with` WSZYSTKO JEST JUŻ POSORTOWANE I GOTOWE DO ZAPISU ---
+    # Nie robimy już gigantycznej pętli for numer_klatki in wyniki_sort!
 
-            print(f"[Obecne zużycie RAM[MB]: {current/10**6:.2f} | Szczytowe zużycie RAM[MB]: {peak/10**6:.2f}")
-
-        wyniki_sort = sorted(wyniki_nonsort, key=lambda x: x[0])
-        wyniki_zbiorcze = []
-
-        # --- NOWOŚĆ: Wyciągamy limity (Targety) z pliku NOE raz na zawsze ---
-        # --- Wyciągamy limity (Targety) z pliku NOE raz na zawsze ---
-        cele_noe = [float(linia.split()[5]) for linia in linie_noe]
-
-        srednia_biezaca_noe = None
-        spelnienie_biezace_noe = None  # Czyste spełnienie (<= Target)
-
-        srednia_biezaca_katy = None
-        historia_katow_w_czasie = []
-
-    for numer_klatki, wynik in wyniki_sort:
-        wynik_noe, wynik_katy = wynik
-        n = numer_klatki + 1
-        wartosci_sred = wynik_noe[6]
-
-        # --- 1. Aktualizacja średniej i SPEŁNIENIA dla NOE ---
-        if srednia_biezaca_noe is None:
-            srednia_biezaca_noe = [np.copy(tablica) for tablica in wartosci_sred]
-            spelnienie_biezace_noe = []
-
-            # Inicjalizacja dla pierwszej klatki z zasadą "Winner takes all"
-            for i in range(len(wartosci_sred)):
-                spelnienie_arr = np.zeros_like(wartosci_sred[i], dtype=np.float32)
-
-                # Szukamy, kto z bliźniaków jest najbliżej
-                best_idx = np.argmin(wartosci_sred[i])
-
-                # Tylko najlepszy może dostać punkt, jeśli mieści się w targecie
-                if wartosci_sred[i][best_idx] <= cele_noe[i]:
-                    spelnienie_arr[best_idx] = 1.0
-
-                spelnienie_biezace_noe.append(spelnienie_arr)
-        else:
-            for i in range(len(wartosci_sred)):
-                # Klasyczna średnia dystansu
-                srednia_biezaca_noe[i] += (wartosci_sred[i] - srednia_biezaca_noe[i]) / n
-
-                # --- ZASADA: Zwycięzca bierze wszystko ---
-                czy_spelnione = np.zeros_like(wartosci_sred[i], dtype=np.float32)
-
-                # Znajdujemy indeks bliźniaka o NAJMNIEJSZEJ odległości w klatce
-                best_idx = np.argmin(wartosci_sred[i])
-
-                # Tylko NAJLEPSZY dostaje 1.0 (o ile spełnia limit)
-                if wartosci_sred[i][best_idx] <= cele_noe[i]:
-                    czy_spelnione[best_idx] = 1.0
-
-                # Uśredniamy nasze jedynki i zera
-                spelnienie_biezace_noe[i] += (czy_spelnione - spelnienie_biezace_noe[i]) / n
-
-        # --- 2. Aktualizacja średniej dla Kątów ---
-        wartosci_katy_klatka = wynik_katy[-1] if len(wynik_katy) > 0 else []
-        if type(wartosci_katy_klatka) is not str and len(wartosci_katy_klatka) > 0:
-
-            # ZAPISUJEMY PEŁNĄ HISTORIĘ KLATKI DO WYKRESÓW:
-            historia_katow_w_czasie.append(wartosci_katy_klatka)
-
-            wartosci_katy_np = np.array(wartosci_katy_klatka)
-            if srednia_biezaca_katy is None:
-                srednia_biezaca_katy = np.copy(wartosci_katy_np)
-            else:
-                srednia_biezaca_katy += (wartosci_katy_np - srednia_biezaca_katy) / n
-
-        wyniki_zbiorcze.append({
-            'Klatka': f"{numer_klatki}",
-            'OK': wynik_noe[0],
-            '%OK': wynik_noe[1],
-            'Na_granicy': wynik_noe[2],
-            '%Na_granicy': wynik_noe[3],
-            'Zle': wynik_noe[4],
-            "%Zle": wynik_noe[5],
-            'Kąty_Ok': wynik_katy[0],
-            '% Kąty_Ok': wynik_katy[1],
-            'Kąty_Żle': wynik_katy[2],
-            '% Kąty_Złe': wynik_katy[3]
-        })
-        if numer_klatki % 50 == 0:
-            gc.collect()
-
-    df_wyniki = pd.DataFrame(wyniki_zbiorcze)
+    kolumny_raport = ['Klatka', 'OK', '%OK', 'Na_granicy', '%Na_granicy', 'Zle', '%Zle', 'Kąty_Ok', '% Kąty_Ok',
+                      'Kąty_Żle', '% Kąty_Złe']
+    df_wyniki = pd.DataFrame(wyniki_zbiorcze, columns=kolumny_raport)
     sciezka_raportu = os.path.join(args.out, "RAPORT_NOE.csv")
     df_wyniki.to_csv(sciezka_raportu, sep=';', index=False)
 
@@ -427,31 +395,17 @@ if __name__ == "__main__":
 
             # Płaskie listy dla wyników
             for (idx1, idx2), sim_mean, spelnienie_mean in zip(
-                    pary_str,
-                    np.array(srednia_wszystkie).flatten(),
-                    np.array(spelnienie_wszystkie).flatten()
-            ):
+                    pary_str, np.array(srednia_wszystkie).flatten(), np.array(spelnienie_wszystkie).flatten()):
                 res1, a_name1 = indeks_do_nazwy.get(idx1, (nr_N_1, atom_1))
                 res2, a_name2 = indeks_do_nazwy.get(idx2, (nr_N_2, atom_2))
 
                 diff = float(sim_mean) - war_porow_f
-                is_twin = "YES" if (
-                            najlepszy_wynik_w_grupie is not None and diff == najlepszy_wynik_w_grupie) else "NO"
 
-                raport_sredni.append({
-                    'Input_Query': input_query,
-                    'Res1': res1,
-                    'Atom1': a_name1,
-                    'Index PDB1': idx1,
-                    'Res2': res2,
-                    'Atom2': a_name2,
-                    'Index PDB2': idx2,
-                    'Exp_Target': war_porow_f,
-                    'Sim_Mean': sim_mean,
-                    'Diff': diff,
-                    #'Is_Best_Pair?': is_twin,
-                    '%_Spelnienia': round(float(spelnienie_mean) * 100, 2)  # <--- Jedna, czysta kolumna ze spełnieniem
-                })
+                # Dodajemy krotkę zamiast słownika
+                raport_sredni.append((
+                    input_query, res1, a_name1, idx1, res2, a_name2, idx2,
+                    war_porow_f, sim_mean, diff, round(float(spelnienie_mean) * 100, 2)
+                ))
 
     # Tutaj możesz wstawić z powrotem stary kod do zapisywania kątów (jeśli ich wciąż używasz)
     if srednia_biezaca_katy is not None:
@@ -463,32 +417,31 @@ if __name__ == "__main__":
             })
 
     if raport_sredni:
-        df_srednie = pd.DataFrame(raport_sredni)
+        kolumny_srednie = ['Input_Query', 'Res1', 'Atom1', 'Index PDB1', 'Res2', 'Atom2', 'Index PDB2', 'Exp_Target',
+                           'Sim_Mean', 'Diff', '%_Spelnienia']
+        df_srednie = pd.DataFrame(raport_sredni, columns=kolumny_srednie)
         sciezka_srednie = os.path.join(args.out, "Pelny_sr_Raport.csv")
-        # Zapis parametrem decimal=',' zapewnia idealne wczytywanie ułamków przez polskiego Excela
-        df_srednie.to_csv(sciezka_srednie, sep=';', index=False, decimal=',')
+        # float_format='%.2f' formatuje liczby podczas zapisu (szybsze niż round() w pętli)
+        df_srednie.to_csv(sciezka_srednie, sep=';', index=False, decimal=',', float_format='%.2f')
         print(f"✅ Zapisano pełny, rozdzielony raport więzów: {sciezka_srednie}")
 
     if historia_katow_w_czasie:
         print("\n📈 Generowanie historii kątów do wykresów...")
 
-        # Zamieniamy naszą listę na macierz i transponujemy (.T),
-        # żeby wiersze to były konkretne kąty, a kolumny to upływający czas (klatki)
-        macierz_katow = np.array(historia_katow_w_czasie).T
-
-        raport_historia_katow = []
+        # Zamieniamy naszą listę bezpośrednio w macierz NumPy (najszybsza metoda)
+        macierz_katow = np.array(historia_katow_w_czasie)
         nazwy_kolumn = ["_".join(linia.split()[:4]) for linia in linie_katy]
 
-        for idx_klatki, wartosci_w_klatce in enumerate(historia_katow_w_czasie):
-            wiersz = {'Klatka': idx_klatki + 1}
-            for nazwa_kata, wartosc in zip(nazwy_kolumn, wartosci_w_klatce):
-                wiersz[nazwa_kata] = round(wartosc, 2)
-            raport_historia_katow.append(wiersz)
+        # Tworzymy DataFrame bezpośrednio z macierzy
+        df_historia_katow = pd.DataFrame(macierz_katow, columns=nazwy_kolumn)
 
-        df_historia_katow = pd.DataFrame(raport_historia_katow)
+        # Wstawiamy kolumnę z numerem klatki na sam początek (indeks 0)
+        df_historia_katow.insert(0, 'Klatka', np.arange(1, len(historia_katow_w_czasie) + 1))
+
+        # Masowe zaokrąglenie całego DataFrame'u naraz (ułamek sekundy zamiast długiej pętli)
+        df_historia_katow = df_historia_katow.round(2)
+
         sciezka_hist_katow = os.path.join(args.out, "Historia_Katow_Wykresy.csv")
-
-        # Zapis parametrem decimal=',' zapewnia wsparcie dla polskiego Excela
         df_historia_katow.to_csv(sciezka_hist_katow, sep=';', index=False, decimal=',')
         print(f"✅ Zapisano plik z historią kątów (gotowy na wykresy!): {sciezka_hist_katow}")
 
